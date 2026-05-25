@@ -6,28 +6,48 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TARGET = 'https://afdsonline.famigliediurne.ch/sirioweb';
 
-// Accetta richieste da qualsiasi origine (la tua PWA)
 app.use(cors());
 app.use(express.json());
 
-// Health check — Render lo usa per tenerlo sveglio
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'AFDS Proxy' });
 });
 
-// Proxy: inoltra qualsiasi POST /api/<endpoint> verso il portale AFDS
 app.post('/api/:endpoint', async (req, res) => {
   const url = `${TARGET}/${req.params.endpoint}`;
+  console.log(`→ ${req.params.endpoint}`, JSON.stringify(req.body).slice(0, 120));
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'it-IT,it;q=0.9',
+        'Origin': 'https://afdsonline.famigliediurne.ch',
+        'Referer': 'https://afdsonline.famigliediurne.ch/',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+      },
       body: JSON.stringify(req.body)
     });
-    const data = await response.json();
-    res.json(data);
+
+    const text = await response.text();
+    console.log(`← ${req.params.endpoint} [${response.status}]`, text.slice(0, 200));
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        success: false,
+        message: `AFDS HTTP ${response.status}: ${text.slice(0, 300)}`
+      });
+    }
+
+    try {
+      res.json(JSON.parse(text));
+    } catch(e) {
+      res.status(502).json({ success: false, message: 'Risposta non-JSON da AFDS: ' + text.slice(0, 200) });
+    }
+
   } catch (err) {
-    console.error(`Errore proxy [${req.params.endpoint}]:`, err.message);
+    console.error(`✗ ${req.params.endpoint}:`, err.message);
     res.status(502).json({ success: false, message: err.message });
   }
 });
